@@ -8,14 +8,16 @@ import { startDueDateReminderCron } from "./utils/reminder.cron.js";
 const port = process.env.PORT || 3000;
 const httpServer = createServer(app);
 const io = initializeSocketIO(httpServer);
+
 // Make the io instance reachable from controllers via req.app.get("io")
 app.set("io", io);
 
 connectDB()
   .then(() => {
-    httpServer.listen(port, () => {
-      console.log(`Example app listening on port http://localhost:${port}`);
+    httpServer.listen(port, "0.0.0.0", () => {
+      console.log(`Server listening on port ${port}`);
     });
+
     startDueDateReminderCron();
   })
   .catch((err) => {

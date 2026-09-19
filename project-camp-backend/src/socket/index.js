@@ -1,16 +1,17 @@
 import { Server } from "socket.io";
 import * as cookie from "cookie";
-import jwt from "jsonwebtoken";
+import admin from "firebase-admin";
 import { User } from "../models/user.models.js";
 import { SocketEventEnum } from "../utils/constants.js";
 
 /**
- * Authenticates an incoming socket connection using the same access token
+ * Authenticates an incoming socket connection using the same Firebase ID token
  * that's used for regular HTTP requests (cookie or Authorization header).
  */
 const socketAuthMiddleware = async (socket, next) => {
   try {
     const cookies = cookie.parse(socket.handshake.headers?.cookie || "");
+
     const token =
       cookies?.accessToken ||
       socket.handshake.auth?.token ||
@@ -20,10 +21,13 @@ const socketAuthMiddleware = async (socket, next) => {
       return next(new Error("Unauthorized: No token provided"));
     }
 
-    const decodedToken = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
-    const user = await User.findById(decodedToken?._id).select(
-      "-password -refreshToken -emailVerificationToken -emailVerificationExpiry",
-    );
+    // Verify Firebase ID token
+    const decodedToken = await admin.auth().verifyIdToken(token);
+
+    // Find the corresponding local MongoDB user using Firebase UID
+    const user = await User.findOne({
+      firebaseUid: decodedToken.uid,
+    }).select("-emailVerificationToken -emailVerificationExpiry");
 
     if (!user) {
       return next(new Error("Unauthorized: Invalid token"));
@@ -44,7 +48,8 @@ const socketAuthMiddleware = async (socket, next) => {
 export const initializeSocketIO = (httpServer) => {
   const io = new Server(httpServer, {
     cors: {
-      origin: process.env.CORS_ORIGIN?.split(",") || "http://localhost:5173",
+      origin:
+        process.env.CORS_ORIGIN?.split(",") || "http://localhost:5173",
       credentials: true,
     },
   });
@@ -63,7 +68,11 @@ export const initializeSocketIO = (httpServer) => {
     });
 
     socket.on("disconnect", () => {
-      console.log("Socket disconnected:", socket.user?.username, socket.id);
+      console.log(
+        "Socket disconnected:",
+        socket.user?.username,
+        socket.id,
+      );
     });
   });
 
@@ -76,5 +85,6 @@ export const initializeSocketIO = (httpServer) => {
  */
 export const emitToProject = (io, projectId, event, payload) => {
   if (!io) return;
+
   io.to(`project:${projectId}`).emit(event, payload);
 };
